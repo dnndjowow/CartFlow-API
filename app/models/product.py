@@ -12,7 +12,7 @@ class Product(Base):
     __tablename__ = 'products'
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    saller_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    seller_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     descriptions: Mapped[str | None] = mapped_column(String(300), nullable=True)
     quantity: Mapped[int] = mapped_column(nullable=False)
@@ -39,7 +39,7 @@ class Product(Base):
         cascade='all, delete-orphan',
     )
 
-    saller: Mapped['User'] = relationship(
+    seller: Mapped['User'] = relationship(
         back_populates='product'
     )
 

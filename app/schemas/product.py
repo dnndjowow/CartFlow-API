@@ -25,7 +25,7 @@ class ProductCreate(BaseModel):
         return value
         
 
-class ProductUpdatet(BaseModel):
+class ProductUpdate(BaseModel):
     name: Annotated[str | None, Field(max_length=100)] = None
     descriptions: Annotated[str | None, Field(max_length=300)] = None
     quantity: Annotated[int | None, Field(..., ge=0)] = None
@@ -55,7 +55,7 @@ class ProductUpdatet(BaseModel):
 
 class ProductResponse(BaseModel):
     id: Annotated[int, Field()]
-    saller_id: Annotated[int, Field()]
+    seller_id: Annotated[int, Field()]
     name: Annotated[str, Field()]
     descriptions: Annotated[str | None, Field()] = None
     quantity: Annotated[int, Field()]
@@ -70,7 +70,7 @@ class ProductResponse(BaseModel):
 class ProductQuery(BaseModel):
     page: Annotated[int, Field(ge=1)] = 1
     page_size: Annotated[int, Field(ge=1, le=100)] =20
-    saller_id: Annotated[int | None, Field()] = None
+    seller_id: Annotated[int | None, Field()] = None
     search: Annotated[str | None, Field(min_length=3, max_length=60)] = None
     in_stock: Annotated[bool | None, Field()] = None
     min_price: Annotated[Decimal | None, Field(gt=0, max_digits=12, decimal_places=2)] = None

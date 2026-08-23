@@ -37,12 +37,12 @@ async def get_current_user(
 
 class RoleCheck:
         
-    def __init__(self, role: str):
+    def __init__(self, role: list):
         self.role = role
 
     def __call__(self, current_user: Annotated[UserModel, Depends(get_current_user)]):
 
-        if current_user.role != self.role:
+        if current_user.role not in self.role:
             raise HTTPException(
                 status_code=403,
                 detail='Insufficient access rights',
