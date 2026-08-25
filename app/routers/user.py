@@ -3,6 +3,7 @@ from typing import Annotated
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.exc import IntegrityError
 
 from app.models.user import User as UserModel
 from app.schemas.user import UserRespons, UserPatchRole, UserCreate
@@ -25,33 +26,46 @@ async def registr_user(
     user: UserCreate,
     db: Annotated[AsyncSession, Depends(get_async_db)],
 ):
-    
-    email_check = await db.scalar(
-        select(UserModel).where(
-            UserModel.email == user.email,
-        )
-    )
 
-    if email_check is not None:
+    try:  
+        email_check = await db.scalar(
+            select(UserModel).where(
+                UserModel.email == user.email,
+            )
+        )
+
+        if email_check is not None:
+            raise HTTPException(
+                status_code=409,
+                detail='This email is already in use',
+            )
+        
+        new_user = UserModel(
+            email=user.email,
+            hashed_password=hash_password(user.password),
+        )
+
+        db.add(new_user)
+        await db.flush()
+
+        new_cart = CartModel(
+            user_id=new_user.id,
+        )
+
+        db.add(new_cart)
+        await db.commit()
+
+    except IntegrityError:
+        await db.rollback()
+
         raise HTTPException(
             status_code=409,
-            detail='This email is already in use',
+            detail="Email already registered",
         )
     
-    new_user = UserModel(
-        email=user.email,
-        hashed_password=hash_password(user.password),
-    )
-
-    db.add(new_user)
-    await db.flush()
-
-    new_cart = CartModel(
-        user_id=new_user.id,
-    )
-
-    db.add(new_cart)
-    await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
 
     return new_user
 
@@ -219,35 +233,32 @@ async def delete_user(
             status_code=404,
             detail='User is not found',
         )
-    
-    if user_check.role == 'seller':
 
-        product_check = await db.scalar(
-            select(ProductModel).where(
-                ProductModel.seller_id == user_id,
-            )
+
+    product_check = await db.scalar(
+        select(ProductModel).where(
+            ProductModel.seller_id == user_id,
+        )
+    )
+
+    if product_check is not None:
+        raise HTTPException(
+            status_code=400,
+            detail='A seller account cannot be deleted while there are active products',
         )
 
-        if product_check is not None:
-            raise HTTPException(
-                status_code=400,
-                detail='A seller account cannot be deleted while there are active products',
-            )
-    
-    if user_check.role == 'customer':
 
-        order_check = await db.scalar(
-            select(OrderModel).where(
-                OrderModel.user_id == user_id,
-                OrderModel.status.in_(['pending', 'paid']),
-            )
+    order_check = await db.scalar(
+        select(OrderModel).where(
+            OrderModel.user_id == user_id,
         )
+    )
 
-        if order_check is not None:
-            raise HTTPException(
-                status_code=400,
-                detail='A customer account cannot be deleted if there are active orders',
-            )
+    if order_check is not None:
+        raise HTTPException(
+            status_code=400,
+            detail='A customer account cannot be deleted if there are active orders',
+        )
             
     await db.delete(user_check)
     await db.commit()

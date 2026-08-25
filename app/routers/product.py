@@ -1,19 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import Annotated
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi.security import OAuth2PasswordRequestForm
 
 from app.models.user import User as UserModel
 from app.schemas.product import ProductCreate, ProductList, ProductQuery, ProductResponse, ProductUpdate
 from app.db_depends import get_async_db
-from app.auth import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
-from app.schemas.auth import TokenResponse, AccessTokenResponse, RefreshToken
 from app.dependency import get_current_user, RoleCheck
 from app.models.product import Product as ProductModel
-from app.models.order import Order as OrderModel
-from app.models.cart import Cart as CartModel
-
 
 router = APIRouter(
     prefix='/products',
@@ -61,6 +55,7 @@ async def update_product(
             ProductModel.id == product_id,
             ProductModel.is_active.is_(True)
         )
+        .with_for_update()
     )
 
     if product_check is None:

@@ -23,7 +23,6 @@ class User(Base):
 
     order: Mapped[list['Order']] = relationship(
         back_populates='user',
-        cascade='all, delete-orphan',
     )
 
     product: Mapped[list['Product']] = relationship(

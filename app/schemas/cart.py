@@ -1,7 +1,8 @@
-from pydantic import Field, BaseModel, ConfigDict, field_validator
-from decimal import Decimal
+from pydantic import Field, BaseModel, ConfigDict
 from datetime import datetime
 from typing import Annotated
+
+from app.schemas.product import ProductResponse
 
 
 class CreateItemsCart(BaseModel):
@@ -18,7 +19,7 @@ class ItemsCartResponse(BaseModel):
     cart_id: Annotated[int, Field()]
     product_id: Annotated[int, Field()]
     quantity: Annotated[int, Field()]
-    price: Annotated[Decimal, Field()]
+    product: ProductResponse
 
     model_config = ConfigDict(from_attributes=True)
 
