@@ -233,8 +233,8 @@ GET /order/orderlist/admin?page=1&page_size=20&status=pending&min_price=100
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/dnndjowow/CartFlow-API.git
-cd CartFlow-API
+git clone https://github.com/dnndjowow/mini-project-CartFlow-API.git
+cd mini-project-CartFlow-API
 ```
 
 ### 2. Create a virtual environment
