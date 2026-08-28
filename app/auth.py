@@ -38,7 +38,14 @@ def create_refresh_token(data: dict):
 def decode_token(token: str, type: str):
 
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=[ALGORITHM],
+            options= {
+                'require': ["sub", "exp", "iat", "type"]
+            },
+        )
         user_id = int(payload.get('sub'))
         type_token = payload.get('type')
 

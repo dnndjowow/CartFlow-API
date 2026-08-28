@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from typing import Annotated
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,7 @@ from app.schemas.product import ProductCreate, ProductList, ProductQuery, Produc
 from app.db_depends import get_async_db
 from app.dependency import get_current_user, RoleCheck
 from app.models.product import Product as ProductModel
+from services.images import save_product_image , remove_product_image
 
 router = APIRouter(
     prefix='/products',
@@ -21,18 +22,33 @@ router = APIRouter(
     dependencies=[Depends(RoleCheck(['seller']))]
 )
 async def create_product(
-    product: ProductCreate,
+    product: Annotated[ProductCreate, Depends(ProductCreate.as_form)],
     db: Annotated[AsyncSession, Depends(get_async_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
-):
+    image: Annotated[UploadFile | None, File()] = None,
+):  
     
-    new_product = ProductModel(
-        **product.model_dump(),
-        seller_id=user.id,
-    )
+    image_url = None
 
-    db.add(new_product)
-    await db.commit()
+    try:
+        image_url = await save_product_image(image) if image else None
+        
+        new_product = ProductModel(
+            **product.model_dump(),
+            seller_id=user.id,
+            image_url=image_url,
+        )
+
+        db.add(new_product)
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+        remove_product_image(image_url)
+
+        raise
+
+
     await db.refresh(new_product)
 
     return new_product
@@ -47,41 +63,61 @@ async def update_product(
     product_id: int,
     db: Annotated[AsyncSession, Depends(get_async_db)],
     user: Annotated[UserModel, Depends(get_current_user)],
-    product_values: ProductUpdate,
-):
-    
-    product_check = await db.scalar(
-        select(ProductModel).where(
-            ProductModel.id == product_id,
-            ProductModel.is_active.is_(True)
-        )
-        .with_for_update()
-    )
+    product_values: Annotated[ProductUpdate, Depends(ProductUpdate.as_form)],
+    image: Annotated[UploadFile | None, File()] = None,
+):  
+    new_image = None
 
-    if product_check is None:
-        raise HTTPException(
-            status_code=404,
-            detail='Product is not found'
-        )
-    
-    if product_check.seller_id != user.id:
-        raise HTTPException(
-            status_code=403,
-            detail='Seller can not update not mine product',
-        )
-    
-    product_update = product_values.model_dump(exclude_unset=True)
-
-    if product_update == {}:
-        raise HTTPException(
-            status_code=400,
-            detail='Incorrect update request'
+    try:
+        product_check = await db.scalar(
+            select(ProductModel).where(
+                ProductModel.id == product_id,
+                ProductModel.is_active.is_(True)
+            )
+            .with_for_update()
         )
 
-    for name, value in product_update.items():
-        setattr(product_check, name, value)
+        if product_check is None:
+            raise HTTPException(
+                status_code=404,
+                detail='Product is not found'
+            )
+        
+        if product_check.seller_id != user.id:
+            raise HTTPException(
+                status_code=403,
+                detail='Seller can not update not mine product',
+            )
+        
+        product_update = product_values.model_dump(exclude_unset=True)
 
-    await db.commit()
+        if product_update == {} and not image:
+            raise HTTPException(
+                status_code=400,
+                detail='Incorrect update request'
+            )
+
+
+        for name, value in product_update.items():
+            setattr(product_check, name, value)
+
+        if image:
+            old_image = product_check.image_url
+            new_image = await save_product_image(image)
+            product_check.image_url = new_image
+
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+        if new_image is not None:
+            remove_product_image(new_image)
+
+        raise
+      
+    if image:
+        remove_product_image(old_image)
+
     await db.refresh(product_check)
 
     return product_check
@@ -104,6 +140,7 @@ async def delete_product(
             ProductModel.id == product_id,
             ProductModel.is_active.is_(True),
         )
+        .with_for_update()
     )
 
     if product is None:
@@ -117,10 +154,19 @@ async def delete_product(
             status_code=403,
             detail='Seller can not delete not mine product',
         )
-
+    
+    current_image = product.image_url
     product.is_active = False
+    product.image_url = None
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    remove_product_image(current_image)
+
     await db.refresh(product)
 
     return product

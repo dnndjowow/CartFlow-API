@@ -14,6 +14,7 @@ class Product(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     seller_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    image_url: Mapped[str | None] = mapped_column(nullable=True)
     descriptions: Mapped[str | None] = mapped_column(String(300), nullable=True)
     quantity: Mapped[int] = mapped_column(nullable=False)
     price: Mapped[Decimal] = mapped_column(Numeric(12,2), nullable=False)

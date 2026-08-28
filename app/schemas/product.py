@@ -1,4 +1,5 @@
 from pydantic import Field, BaseModel, ConfigDict, field_validator, model_validator
+from fastapi import Form
 from decimal import Decimal
 from datetime import datetime
 from typing import Annotated
@@ -23,6 +24,21 @@ class ProductCreate(BaseModel):
         if value is not None and len(value.strip()) == 0:
             raise ValueError('Incrorrect descriptions')
         return value
+    
+    @classmethod
+    def as_form(
+        cls,
+        name: Annotated[str, Form(...)],
+        quantity: Annotated[int, Form(...)],
+        price: Annotated[Decimal, Form(...)],
+        descriptions: Annotated[str | None, Form()] = None,
+    ):
+        return cls(
+            name=name,
+            descriptions=descriptions,
+            quantity=quantity,
+            price=price,
+        )
         
 
 class ProductUpdate(BaseModel):
@@ -51,6 +67,25 @@ class ProductUpdate(BaseModel):
         if value is not None and len(value.strip()) == 0:
             raise ValueError('Incrorrect descriptions')
         return value
+    
+    @classmethod
+    def as_form(
+        cls,
+        name: Annotated[str | None, Form()] = None,
+        descriptions: Annotated[str | None, Form()] = None,
+        quantity: Annotated[int | None, Form()] = None,
+        price: Annotated[Decimal | None, Form()] = None,
+    ):
+        
+        data = {
+            'name': name,
+            'descriptions': descriptions,
+            'quantity': quantity,
+            'price': price,
+        }
+        return cls(**{
+            key: value for key, value in data.items() if value is not None
+        })
         
 
 class ProductResponse(BaseModel):
@@ -58,6 +93,7 @@ class ProductResponse(BaseModel):
     seller_id: Annotated[int, Field()]
     name: Annotated[str, Field()]
     descriptions: Annotated[str | None, Field()] = None
+    image_url: Annotated[str | None, Field()] = None
     quantity: Annotated[int, Field()]
     price: Annotated[Decimal, Field()]
     is_active: Annotated[bool, Field()]
