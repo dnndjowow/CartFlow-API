@@ -1,26 +1,39 @@
-from pathlib import Path
 import uuid
-from fastapi import UploadFile, File, Form, HTTPException
+from io import BytesIO
+
+from fastapi import UploadFile, HTTPException
+from PIL import Image, UnidentifiedImageError
 
 from app.config import ALLOWED_IMAGE_TYPES, MAX_IMAGE_SIZE, MEDIA_ROOT, BASE_DIR
 
 
 async def save_product_image(file: UploadFile):
-    if file.content_type not in ALLOWED_IMAGE_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail="Only JPG, PNG or WebP images are allowed",
-        )
     
-    content = await file.read()
+    content = await file.read(MAX_IMAGE_SIZE + 1)
 
     if len(content) > MAX_IMAGE_SIZE:
         raise HTTPException(
             status_code=400,
             detail='Image is too large',
         )
+
+    try:
+        image = Image.open(BytesIO(content))
+        image_format = image.format
+        image.verify()
+    except (UnidentifiedImageError, OSError):
+        raise HTTPException(
+            status_code=400,
+            detail="File is not a valid image",
+        )
+    extension = ALLOWED_IMAGE_TYPES.get(image_format)
+
+    if extension is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported image format",
+        )
     
-    extension = Path(file.filename or '').suffix.lower() or '.jpg'
     file_name = f'{uuid.uuid4()}{extension}'
     file_path = MEDIA_ROOT / file_name
     file_path.write_bytes(content)
