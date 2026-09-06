@@ -21,7 +21,12 @@ router = APIRouter(
     tags=['order'],
 )
 
-@router.post('/', response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    '/',
+    response_model=OrderResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(RoleCheck(['customer']))]
+)
 async def create_order(
     user: Annotated[UserModel, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_async_db)]

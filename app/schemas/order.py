@@ -1,6 +1,5 @@
-from pydantic import Field, BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import Field, BaseModel, ConfigDict, field_validator, model_validator, AwareDatetime
 from decimal import Decimal
-from datetime import datetime
 from typing import Annotated
 
 
@@ -46,8 +45,8 @@ class OrderQuery(BaseModel):
     page_size: Annotated[int, Field(ge=1, le=100)] =20
     order_id: Annotated[int | None, Field(ge=1)] = None
     status: Annotated[str | None, Field()] = None
-    create_with: Annotated[datetime | None, Field()] = None
-    create_up: Annotated[datetime | None, Field()] = None
+    create_with: AwareDatetime | None = None
+    create_up: AwareDatetime | None = None
     min_price: Annotated[Decimal | None, Field(gt=0, max_digits=12, decimal_places=2)] = None
     max_price: Annotated[Decimal | None, Field(gt=0, max_digits=12, decimal_places=2)] = None
 

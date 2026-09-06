@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from typing import Annotated
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User as UserModel
+from app.models.category import Category as CategoryModel
 from app.schemas.product import ProductCreate, ProductList, ProductQuery, ProductResponse, ProductUpdate
 from app.db_depends import get_async_db
 from app.dependency import get_current_user, RoleCheck
@@ -27,6 +28,21 @@ async def create_product(
     user: Annotated[UserModel, Depends(get_current_user)],
     image: Annotated[UploadFile | None, File()] = None,
 ):  
+    
+    category_check = await db.scalar(
+        select(CategoryModel)
+        .where(
+            CategoryModel.id == product.category_id,
+            CategoryModel.is_active.is_(True),
+        )
+        .with_for_update(read=True)
+    )
+
+    if category_check is None:
+        raise HTTPException(
+            status_code=404,
+            detail='Category is not found',
+        )
     
     image_url = None
 
@@ -70,7 +86,8 @@ async def update_product(
 
     try:
         product_check = await db.scalar(
-            select(ProductModel).where(
+            select(ProductModel)
+            .where(
                 ProductModel.id == product_id,
                 ProductModel.is_active.is_(True)
             )
@@ -96,6 +113,23 @@ async def update_product(
                 status_code=400,
                 detail='Incorrect update request'
             )
+        
+        if 'category_id' in product_update:
+
+            category_check = await db.scalar(
+                select(CategoryModel)
+                .where(
+                    CategoryModel.id == product_update.get('category_id'),
+                    CategoryModel.is_active.is_(True),
+                )
+                .with_for_update(read=True)
+            )
+
+            if category_check is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail='Category is not found',
+                )
 
 
         for name, value in product_update.items():
@@ -136,7 +170,8 @@ async def delete_product(
 ):
     
     product = await db.scalar(
-        select(ProductModel).where(
+        select(ProductModel)
+        .where(
             ProductModel.id == product_id,
             ProductModel.is_active.is_(True),
         )
@@ -202,6 +237,15 @@ async def get_products(
     
     filters = [ProductModel.is_active.is_(True)]
 
+    if parametrs.category_id is not None:
+        filters.append(
+            and_(
+                ProductModel.category_id == CategoryModel.id,
+                ProductModel.category_id == parametrs.category_id,
+                CategoryModel.is_active.is_(True)
+            )
+        )
+
     if parametrs.seller_id is not None:
         filters.append(ProductModel.seller_id == parametrs.seller_id)
 
@@ -227,25 +271,23 @@ async def get_products(
 
     if rank_col is not None:
 
-        items = (await db.scalars(
+        stmt = (
             select(ProductModel, rank_col)
             .where(*filters)
             .order_by(rank_col.desc(), ProductModel.id)
-            .offset((parametrs.page - 1) * parametrs.page_size)
-            .limit(parametrs.page_size)
         )
-    ).all()
     
     else:
-        items = (await db.scalars(
+        stmt = (
             select(ProductModel)
             .where(*filters)
             .order_by(ProductModel.id)
-            .offset((parametrs.page - 1) * parametrs.page_size)
-            .limit(parametrs.page_size)
         )
-    ).all()
+        
+    stmt = stmt.offset((parametrs.page - 1) * parametrs.page_size)
+    stmt = stmt.limit(parametrs.page_size)
 
+    items = (await db.scalars(stmt)).all()
     total = await db.scalar(
         select(func.count())
         .select_from(ProductModel)

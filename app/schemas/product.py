@@ -1,5 +1,5 @@
 from pydantic import Field, BaseModel, ConfigDict, field_validator, model_validator
-from fastapi import Form
+from fastapi import Form, HTTPException
 from decimal import Decimal
 from datetime import datetime
 from typing import Annotated
@@ -8,6 +8,7 @@ from typing import Annotated
 class ProductCreate(BaseModel):
     name: Annotated[str, Field(..., max_length=100)]
     descriptions: Annotated[str | None, Field(max_length=300)] = None
+    category_id: Annotated[int, Field(..., ge=1)]
     quantity: Annotated[int, Field(..., ge=0)]
     price: Annotated[Decimal, Field(..., gt=0, max_digits=12, decimal_places=2)]
 
@@ -28,15 +29,29 @@ class ProductCreate(BaseModel):
     @classmethod
     def as_form(
         cls,
-        name: Annotated[str, Form(...)],
-        quantity: Annotated[int, Form(...)],
-        price: Annotated[Decimal, Form(...)],
-        descriptions: Annotated[str | None, Form()] = None,
+        name: Annotated[str, Form(..., max_length=100)],
+        quantity: Annotated[int, Form(..., ge=0)],
+        price: Annotated[Decimal, Form(..., gt=0, max_digits=12, decimal_places=2)],
+        category_id: Annotated[int, Form(..., ge=1)],
+        descriptions: Annotated[str | None, Form(max_length=300)] = None,
     ):
+        if len(name.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail='Incorrect name',
+            )
+            
+        if descriptions is not None and len(descriptions.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail='Incorrect descriptions',
+            )
+        
         return cls(
             name=name,
             descriptions=descriptions,
             quantity=quantity,
+            category_id = category_id,
             price=price,
         )
         
@@ -44,10 +59,11 @@ class ProductCreate(BaseModel):
 class ProductUpdate(BaseModel):
     name: Annotated[str | None, Field(max_length=100)] = None
     descriptions: Annotated[str | None, Field(max_length=300)] = None
-    quantity: Annotated[int | None, Field(..., ge=0)] = None
+    category_id: Annotated[int | None, Field(ge=1)] = None
+    quantity: Annotated[int | None, Field(ge=0)] = None
     price: Annotated[Decimal | None, Field(gt=0, max_digits=12, decimal_places=2)] = None
 
-    @field_validator('name', 'quantity', 'price', mode='after')
+    @field_validator('name', 'quantity', 'price', 'category_id', mode='after')
     @classmethod
     def check_null(cls, value: str | int | Decimal | None):
         if value is None:
@@ -71,16 +87,23 @@ class ProductUpdate(BaseModel):
     @classmethod
     def as_form(
         cls,
-        name: Annotated[str | None, Form()] = None,
-        descriptions: Annotated[str | None, Form()] = None,
-        quantity: Annotated[int | None, Form()] = None,
-        price: Annotated[Decimal | None, Form()] = None,
+        name: Annotated[str | None, Form(max_length=100)] = None,
+        descriptions: Annotated[str | None, Form(max_length=300)] = None,
+        category_id: Annotated[int | None, Form(ge=1)] = None,
+        quantity: Annotated[int | None, Form(ge=0)] = None,
+        price: Annotated[Decimal | None, Form(gt=0, max_digits=12, decimal_places=2)] = None,
     ):
+        if name is not None and len(name.strip()) == 0:
+            raise HTTPException(status_code=422, detail='Incorrect name')
+
+        if descriptions is not None and len(descriptions.strip()) == 0:
+            raise HTTPException(status_code=422, detail='Incorrect descriptions')
         
         data = {
             'name': name,
             'descriptions': descriptions,
             'quantity': quantity,
+            'category_id': category_id,
             'price': price,
         }
         
@@ -90,16 +113,17 @@ class ProductUpdate(BaseModel):
         
 
 class ProductResponse(BaseModel):
-    id: Annotated[int, Field()]
-    seller_id: Annotated[int, Field()]
-    name: Annotated[str, Field()]
-    descriptions: Annotated[str | None, Field()] = None
-    image_url: Annotated[str | None, Field()] = None
-    quantity: Annotated[int, Field()]
-    price: Annotated[Decimal, Field()]
-    is_active: Annotated[bool, Field()]
-    create_at: Annotated[datetime, Field()]
-    update_at: Annotated[datetime | None, Field()] = None
+    id: int
+    seller_id: int
+    category_id: int
+    name: str
+    descriptions: str | None
+    image_url: str | None
+    quantity: int
+    price: Decimal
+    is_active: bool
+    create_at: datetime
+    update_at: datetime | None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -107,7 +131,8 @@ class ProductResponse(BaseModel):
 class ProductQuery(BaseModel):
     page: Annotated[int, Field(ge=1)] = 1
     page_size: Annotated[int, Field(ge=1, le=100)] =20
-    seller_id: Annotated[int | None, Field()] = None
+    seller_id: Annotated[int | None, Field(ge=1)] = None
+    category_id: Annotated[int | None, Field(ge=1)] = None
     search: Annotated[str | None, Field(min_length=3, max_length=60)] = None
     in_stock: Annotated[bool | None, Field()] = None
     min_price: Annotated[Decimal | None, Field(gt=0, max_digits=12, decimal_places=2)] = None

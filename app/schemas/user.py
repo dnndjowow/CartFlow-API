@@ -4,7 +4,6 @@ from typing import Annotated
 
 
 class UserCreate(BaseModel):
-
     email: Annotated[EmailStr, Field(...)]
     password: Annotated[str, Field(..., min_length=5, max_length=30)]
 
@@ -24,7 +23,6 @@ class UserCreate(BaseModel):
     
 
 class UserPatchRole(BaseModel):
-
     role: Annotated[str, Field(...)]
 
     @field_validator('role', mode='after')
@@ -36,7 +34,6 @@ class UserPatchRole(BaseModel):
 
 
 class UserRespons(BaseModel):
-
     id: Annotated[int, Field()]
     email: Annotated[str, Field()]
     role: Annotated[str, Field()]

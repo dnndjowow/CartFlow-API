@@ -13,6 +13,7 @@ class Product(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     seller_id: Mapped[int] = mapped_column(ForeignKey('users.id'), nullable=False)
+    category_id: Mapped[int] = mapped_column(ForeignKey('categoryes.id'), nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     image_url: Mapped[str | None] = mapped_column(nullable=True)
     descriptions: Mapped[str | None] = mapped_column(String(300), nullable=True)
@@ -46,6 +47,10 @@ class Product(Base):
 
     items: Mapped[list['OrderItem']] = relationship(
         back_populates='product',
+    )
+
+    category: Mapped['Category'] = relationship(
+        back_populates='products',
     )
 
     __table_args__ = (
