@@ -1,24 +1,31 @@
-# mini-project-CartFlow-API
+# CartFlow API
 
-CartFlow API is an asynchronous REST API for managing products, shopping carts, and orders. The project demonstrates authentication with JWT, PostgreSQL full-text search, transactional order creation, row-level locking, pagination, filtering, and SQLAlchemy relationships.
+CartFlow API is an asynchronous REST API for managing a product catalog, hierarchical categories, shopping carts, and orders.
+
+The project demonstrates JWT authentication, role-based access control, PostgreSQL full-text search, image uploads, filtering, pagination, database transactions, and row-level locking.
 
 ## Features
 
+- Asynchronous FastAPI application
+- PostgreSQL database
+- SQLAlchemy 2.0 with `AsyncSession`
+- Alembic database migrations
 - User registration and authentication
 - Access and refresh JWT tokens
-- Role-based access control
-- Product creation and management
-- Soft deletion of products
-- PostgreSQL full-text product search
+- Password hashing with Argon2
+- Role-based permissions
+- Hierarchical product categories
+- Product image uploading
+- Image type and size validation
 - Product filtering and pagination
+- PostgreSQL full-text search
 - One shopping cart per user
-- Adding, updating, and removing cart items
 - Transactional order creation
-- Automatic stock reduction during checkout
-- Stock restoration when an order is cancelled
+- Stock validation and reduction
 - Order status transitions
+- Stock restoration after cancellation
 - Row-level locking with `FOR UPDATE`
-- Database migrations with Alembic
+- Soft deletion of products and categories
 
 ## Technology Stack
 
@@ -26,40 +33,75 @@ CartFlow API is an asynchronous REST API for managing products, shopping carts, 
 - FastAPI
 - PostgreSQL
 - SQLAlchemy 2.0
-- AsyncSession
 - asyncpg
 - Alembic
 - Pydantic 2
 - PyJWT
-- pwdlib with Argon2
+- pwdlib
+- Argon2
+- Pillow
+- python-multipart
+- python-dotenv
 - Uvicorn
 
 ## Project Structure
 
 ```text
-app/
-├── migrations/          # Alembic migrations
-├── models/              # SQLAlchemy models
-├── routers/             # FastAPI endpoints
-├── schemas/             # Pydantic schemas
-├── auth.py              # Password hashing and JWT functions
-├── config.py            # Environment variable configuration
-├── database.py          # Async SQLAlchemy engine and session maker
-├── db_depends.py        # Database session dependency
-├── dependency.py        # Authentication and role dependencies
-└── main.py              # FastAPI application
+CartFlow API/
+├── app/
+│   ├── migrations/
+│   │   ├── versions/
+│   │   ├── env.py
+│   │   └── script.py.mako
+│   ├── models/
+│   │   ├── user.py
+│   │   ├── category.py
+│   │   ├── product.py
+│   │   ├── cart.py
+│   │   ├── cartitem.py
+│   │   ├── order.py
+│   │   └── orderitem.py
+│   ├── routers/
+│   │   ├── user.py
+│   │   ├── category.py
+│   │   ├── product.py
+│   │   ├── cart.py
+│   │   └── order.py
+│   ├── schemas/
+│   │   ├── auth.py
+│   │   ├── user.py
+│   │   ├── category.py
+│   │   ├── product.py
+│   │   ├── cart.py
+│   │   └── order.py
+│   ├── auth.py
+│   ├── config.py
+│   ├── database.py
+│   ├── db_depends.py
+│   ├── dependency.py
+│   └── main.py
+├── services/
+│   └── images.py
+├── media/
+│   └── products/
+├── .env.example
+├── .gitignore
+├── alembic.ini
+├── requirements.txt
+└── README.md
 ```
 
 ## Data Model
 
-The project contains the following main entities:
+The application contains seven main entities:
 
-- `User` — registered user with a role
-- `Product` — product created by a seller
-- `Cart` — one shopping cart belonging to one user
-- `CartItem` — product and quantity stored in a cart
-- `Order` — order created from the contents of a cart
-- `OrderItem` — product snapshot stored inside an order
+- `User`
+- `Category`
+- `Product`
+- `Cart`
+- `CartItem`
+- `Order`
+- `OrderItem`
 
 ### Relationships
 
@@ -68,6 +110,9 @@ User 1 ─── 1 Cart
 User 1 ─── M Product
 User 1 ─── M Order
 
+Category 1 ─── M Product
+Category 1 ─── M Category
+
 Cart 1 ─── M CartItem
 Product 1 ─── M CartItem
 
@@ -75,27 +120,311 @@ Order 1 ─── M OrderItem
 Product 1 ─── M OrderItem
 ```
 
-A user can be physically deleted only if they have no products and no orders. Their shopping cart and cart items are deleted automatically.
+A category can contain child categories through a self-referencing relationship.
 
-Products are deleted softly by setting:
+A cart stores references to products and their selected quantities. An order stores separate order items so that purchased quantities and prices are preserved after checkout.
+
+## User Roles
+
+The API supports three roles.
+
+### Customer
+
+A customer can:
+
+- manage their own cart;
+- create an order from the cart;
+- view their own orders;
+- view one of their own orders;
+- cancel their own pending order;
+- delete their account if it has no products or orders.
+
+The `customer` role is assigned automatically during registration.
+
+### Seller
+
+A seller can:
+
+- create products;
+- upload product images;
+- update their own products;
+- replace product images;
+- deactivate their own products;
+- manage their own cart.
+
+A seller cannot create an order.
+
+### Administrator
+
+An administrator can:
+
+- create, update, and deactivate categories;
+- change user roles;
+- deactivate any product;
+- view all orders;
+- filter and paginate orders;
+- perform allowed order status transitions;
+- delete another eligible user account.
+
+## Authentication
+
+Authentication uses access and refresh JWT tokens.
+
+### Access token
+
+The access token has a short lifetime and is used to access protected endpoints.
+
+```http
+Authorization: Bearer ACCESS_TOKEN
+```
+
+### Refresh token
+
+The refresh token has a longer lifetime and is used to create a new access token.
+
+The current implementation does not rotate or store refresh tokens in the database.
+
+### Password security
+
+Passwords are never stored directly. During registration, the password is hashed with Argon2 through `pwdlib`.
+
+During authentication, the entered password is compared with the saved hash.
+
+## Categories
+
+Categories support a hierarchical structure using `parent_id`.
+
+A category with:
+
+```json
+{
+  "name": "Electronics",
+  "parent_id": null
+}
+```
+
+is a root category.
+
+A child category can reference another active category:
+
+```json
+{
+  "name": "Smartphones",
+  "parent_id": 1
+}
+```
+
+The application prevents:
+
+- assigning a category as its own parent;
+- assigning one of its descendants as its parent;
+- referencing a missing or inactive parent;
+- deactivating a category with active products;
+- deactivating a category with active child categories.
+
+Categories use soft deletion:
 
 ```text
 is_active = false
 ```
 
-## User Roles
+## Products
 
-The API supports the following roles:
+Only sellers can create products.
 
-- `customer` — default role assigned during registration
-- `seller` — can create, update, and deactivate their own products
-- `admin` — can change user roles, deactivate any product, view all orders, and manage order statuses
+Every product belongs to:
 
-An administrator can change a user role between `customer` and `seller`, provided that the user has no conflicting products or active orders.
+- one seller;
+- one active category.
+
+Products support:
+
+- partial updates;
+- soft deletion;
+- optional descriptions;
+- optional images;
+- stock management;
+- filtering;
+- pagination;
+- PostgreSQL full-text search.
+
+Deactivating a product sets:
+
+```text
+is_active = false
+```
+
+The product is then excluded from public product queries.
+
+## Product Images
+
+Product creation and updating use `multipart/form-data`.
+
+The following formats are supported:
+
+- JPEG
+- PNG
+- WebP
+
+The maximum image size is:
+
+```text
+2 MiB
+```
+
+Uploaded files are:
+
+1. Read asynchronously.
+2. Checked against the maximum size.
+3. Verified with Pillow.
+4. Assigned an extension based on their actual format.
+5. Renamed using UUID.
+6. Saved inside `media/products/`.
+7. Stored in the database as a relative URL.
+
+Example URL:
+
+```text
+/media/products/550e8400-e29b-41d4-a716-446655440000.jpg
+```
+
+Static files are exposed through:
+
+```python
+app.mount(
+    "/media",
+    StaticFiles(directory=BASE_DIR / "media"),
+    name="media",
+)
+```
+
+Replacing an image removes the previous image after the database transaction succeeds.
+
+Deactivating a product clears its image URL and removes the associated file.
+
+The `media/` directory is excluded from Git.
+
+## Product Search
+
+Products support PostgreSQL full-text search by name and description.
+
+The implementation uses:
+
+- a generated `TSVECTOR` column;
+- `websearch_to_tsquery`;
+- the `@@` matching operator;
+- `ts_rank_cd`;
+- a PostgreSQL GIN index.
+
+Product names have priority `A`, while descriptions have priority `B`.
+
+Matching products are sorted first by relevance and then by product ID.
+
+## Product Filtering and Pagination
+
+`GET /products/` supports the following query parameters:
+
+| Parameter | Description |
+|---|---|
+| `page` | Current page number |
+| `page_size` | Number of products per page |
+| `seller_id` | Filter by seller |
+| `category_id` | Filter by category |
+| `search` | Full-text search |
+| `in_stock` | Filter by stock availability |
+| `min_price` | Minimum price |
+| `max_price` | Maximum price |
+
+Example:
+
+```http
+GET /products/?page=1&page_size=20&category_id=2&search=wireless+headphones&in_stock=true&min_price=50&max_price=500
+```
+
+The response contains:
+
+```json
+{
+  "items": [],
+  "total": 0,
+  "page": 1,
+  "page_size": 20
+}
+```
+
+The default page size is `20`, and the maximum page size is `100`.
+
+Category filtering currently searches only inside the specified category and does not automatically include its descendants.
+
+## Shopping Cart
+
+Each user receives one shopping cart during registration.
+
+A cart item contains:
+
+- `product_id`;
+- selected `quantity`;
+- current product information.
+
+When the same product is added again, its quantity in the cart is increased.
+
+Updating a cart item replaces its quantity with the new value.
+
+Users can:
+
+- view their cart;
+- add a product;
+- update product quantity;
+- remove one cart item;
+- remove all cart items.
+
+Adding a product to the cart does not reserve its stock. Availability is checked again during checkout.
+
+## Order Creation
+
+Only customers can create orders.
+
+`POST /order/` does not require a request body because the order is created from the current user's cart.
+
+Checkout is performed as one database transaction:
+
+1. The user's cart is locked.
+2. Cart items are loaded.
+3. The cart is checked for emptiness.
+4. Products are sorted by ID.
+5. Every product is locked with `FOR UPDATE`.
+6. Product availability is checked.
+7. Current product prices are used.
+8. The order and its items are created.
+9. Product quantities are reduced.
+10. Cart items are deleted.
+11. The transaction is committed.
+
+If any operation fails, the transaction is rolled back.
+
+## Order Prices
+
+`Order.price` stores the total amount of the order.
+
+`OrderItem.price` stores the total price of one order position:
+
+```text
+product price × quantity
+```
+
+For example:
+
+```text
+Product price: 100.00
+Quantity: 3
+OrderItem.price: 300.00
+```
+
+The stored order price is not changed when the current product price changes later.
 
 ## Order Statuses
 
-Available order statuses:
+Available statuses:
 
 ```text
 pending
@@ -114,119 +443,96 @@ paid -> completed
 
 The statuses `completed` and `cancelled` are final.
 
-A customer can cancel their own order. An administrator can perform the other allowed status transitions.
+A customer can only cancel their own pending order.
 
-When an order is cancelled, the ordered quantity is returned to product stock.
+An administrator can perform all allowed transitions.
 
-## Transaction Safety
+When an order is cancelled, its quantities are returned to product stock.
 
-Order creation is performed as one database transaction:
+## Order Filtering and Pagination
 
-1. The user's cart is locked.
-2. Cart items are loaded.
-3. Products are locked in a stable order.
-4. Product availability is checked.
-5. An order and order items are created.
-6. Product stock is reduced.
-7. Cart items are removed.
-8. The transaction is committed.
+Administrators can use `GET /order/orderlist/admin`.
 
-PostgreSQL row-level locking with `FOR UPDATE` protects cart and product data from conflicting concurrent operations.
+Supported parameters:
 
-## Full-Text Search
+| Parameter | Description |
+|---|---|
+| `page` | Current page |
+| `page_size` | Items per page |
+| `order_id` | Filter by order ID |
+| `status` | Filter by status |
+| `create_with` | Minimum creation date |
+| `create_up` | Maximum creation date |
+| `min_price` | Minimum order amount |
+| `max_price` | Maximum order amount |
 
-Products support PostgreSQL full-text search over:
+Dates must include timezone information.
 
-- product name with priority `A`;
-- product description with priority `B`.
+Valid examples:
 
-The search implementation uses:
-
-- generated `TSVECTOR` column;
-- `websearch_to_tsquery`;
-- `ts_rank_cd`;
-- PostgreSQL GIN index;
-- relevance-based sorting.
-
-## Product Filtering
-
-`GET /products/` supports:
-
-- `page`
-- `page_size`
-- `seller_id`
-- `search`
-- `in_stock`
-- `min_price`
-- `max_price`
-
-Example:
-
-```http
-GET /products/?page=1&page_size=20&search=wireless+headphones&in_stock=true&min_price=50&max_price=500
+```text
+2026-09-01T10:00:00Z
+2026-09-01T13:00:00+03:00
 ```
 
-## Order Filtering
-
-The administrator order list supports:
-
-- `page`
-- `page_size`
-- `order_id`
-- `status`
-- `create_with`
-- `create_up`
-- `min_price`
-- `max_price`
-
-Example:
+Example request:
 
 ```http
-GET /order/orderlist/admin?page=1&page_size=20&status=pending&min_price=100
+GET /order/orderlist/admin?page=1&page_size=20&status=pending&create_with=2026-09-01T00:00:00Z
 ```
 
 ## API Endpoints
 
 ### Authentication and Users
 
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/registr` | Register a new user |
-| POST | `/auth/token` | Authenticate and receive access and refresh tokens |
-| POST | `/token/access` | Create a new access token using a refresh token |
-| GET | `/me` | Get the current user |
-| PATCH | `/user/role/{user_id}` | Change a user role |
-| DELETE | `/user/delete/{user_id}` | Physically delete a user without products and orders |
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| POST | `/registr` | Public | Register a user |
+| POST | `/auth/token` | Public | Receive access and refresh tokens |
+| POST | `/token/access` | Refresh token | Receive a new access token |
+| GET | `/me` | Authenticated | Get the current user |
+| PATCH | `/user/role/{user_id}` | Admin | Change a user role |
+| DELETE | `/user/delete/{user_id}` | Owner or admin | Delete an eligible account |
+
+### Categories
+
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| GET | `/categories/` | Public | Get active categories |
+| GET | `/categories/{category_id}` | Public | Get one active category |
+| POST | `/categories/` | Admin | Create a category |
+| PATCH | `/categories/{category_id}` | Admin | Update a category |
+| DELETE | `/categories/{category_id}` | Admin | Deactivate a category |
 
 ### Products
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/products/` | Get products with search, filters, and pagination |
-| POST | `/products/` | Create a product |
-| GET | `/products/{product_id}` | Get one active product |
-| PATCH | `/products/{product_id}` | Update an owned product |
-| DELETE | `/products/{product_id}` | Soft-delete a product |
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| GET | `/products/` | Public | Search, filter, and paginate products |
+| GET | `/products/{product_id}` | Public | Get one active product |
+| POST | `/products/` | Seller | Create a product |
+| PATCH | `/products/{product_id}` | Owner seller | Update a product |
+| DELETE | `/products/{product_id}` | Owner seller or admin | Deactivate a product |
 
 ### Cart
 
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/cart/` | Get cart items |
-| POST | `/cart/` | Add a product to the cart |
-| PATCH | `/cart/items/{cart_item_id}` | Change product quantity |
-| DELETE | `/cart/items/{cart_item_id}` | Remove one cart item |
-| DELETE | `/cart/items` | Clear the cart |
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| GET | `/cart/` | Authenticated | Get cart items |
+| POST | `/cart/` | Authenticated | Add a product |
+| PATCH | `/cart/items/{cart_item_id}` | Owner | Update quantity |
+| DELETE | `/cart/items/{cart_item_id}` | Owner | Remove one item |
+| DELETE | `/cart/items` | Owner | Clear the cart |
 
 ### Orders
 
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/order/` | Create an order from the cart |
-| GET | `/order/orderlist` | Get the current user's orders |
-| GET | `/order/orderlist/admin` | Get all orders with filters and pagination |
-| GET | `/order/{order_id}` | Get one owned order |
-| PATCH | `/order/{order_id}` | Change an order status |
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| POST | `/order/` | Customer | Create an order from the cart |
+| GET | `/order/orderlist` | Authenticated | Get the current user's orders |
+| GET | `/order/orderlist/admin` | Admin | Get filtered and paginated orders |
+| GET | `/order/{order_id}` | Owner | Get one order |
+| PATCH | `/order/{order_id}` | Customer or admin | Change an order status |
 
 ## Installation
 
@@ -239,6 +545,8 @@ cd mini-project-CartFlow-API
 
 ### 2. Create a virtual environment
 
+macOS and Linux:
+
 ```bash
 python3 -m venv venv
 source venv/bin/activate
@@ -247,6 +555,7 @@ source venv/bin/activate
 Windows:
 
 ```bash
+python -m venv venv
 venv\Scripts\activate
 ```
 
@@ -270,7 +579,7 @@ Create a database user:
 CREATE USER cartflow_user WITH PASSWORD 'your_password';
 ```
 
-Create the database:
+Create a database:
 
 ```sql
 CREATE DATABASE cartflow_db
@@ -278,7 +587,7 @@ OWNER cartflow_user
 ENCODING 'UTF8';
 ```
 
-Exit PostgreSQL:
+Exit from PostgreSQL:
 
 ```sql
 \q
@@ -302,13 +611,13 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 REFRESH_TOKEN_EXPIRE_DAYS=7
 ```
 
-Generate a secret key:
+Generate a secure secret key:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(64))"
 ```
 
-The real `.env` file is ignored by Git and must not be committed.
+The real `.env` file is excluded from Git and must never be committed.
 
 ## Database Migrations
 
@@ -330,7 +639,7 @@ Check whether the models and database schema are synchronized:
 alembic check
 ```
 
-Create a new migration after changing SQLAlchemy models:
+After changing SQLAlchemy models, create a migration:
 
 ```bash
 alembic revision --autogenerate -m "describe changes"
@@ -344,21 +653,21 @@ alembic upgrade head
 
 ## Creating the First Administrator
 
-Registration creates a user with the `customer` role.
+Registration always creates a user with the `customer` role.
 
-First, register the user through:
+Register an account through:
 
 ```http
 POST /registr
 ```
 
-Then connect to the project database:
+Connect to the project database:
 
 ```bash
-psql -U cartflow_user -d cartflow_db
+psql -U postgres -d cartflow_db
 ```
 
-Change the registered user role:
+Change the role manually:
 
 ```sql
 UPDATE users
@@ -366,47 +675,52 @@ SET role = 'admin'
 WHERE email = 'admin@example.com';
 ```
 
-Check the result:
+Check users:
 
 ```sql
 SELECT id, email, role
 FROM users;
 ```
 
+After that, the administrator can create categories and assign the `seller` role to other users.
+
 ## Running the Application
+
+Start the API from the project root:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-The API will be available at:
+API address:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-Swagger documentation:
+Swagger UI:
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-ReDoc documentation:
+ReDoc:
 
 ```text
 http://127.0.0.1:8000/redoc
 ```
 
-## Authentication
+Uploaded images:
+
+```text
+http://127.0.0.1:8000/media/products/FILE_NAME
+```
+
+## Login Example
 
 The login endpoint uses `OAuth2PasswordRequestForm`.
 
-When requesting a token:
-
-- enter the email in the `username` field;
-- enter the password in the `password` field.
-
-Example:
+The registered email must be sent through the `username` field.
 
 ```bash
 curl -X POST "http://127.0.0.1:8000/auth/token" \
@@ -424,24 +738,54 @@ Example response:
 }
 ```
 
-Use the access token in protected requests:
+## Refresh Token Example
 
-```http
-Authorization: Bearer ACCESS_TOKEN
+```bash
+curl -X POST "http://127.0.0.1:8000/token/access" \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token":"REFRESH_TOKEN"}'
 ```
 
-Refresh the access token:
-
-```http
-POST /token/access
-Content-Type: application/json
-```
+Example response:
 
 ```json
 {
-  "refresh_token": "REFRESH_TOKEN"
+  "access_token": "NEW_ACCESS_TOKEN",
+  "token_type": "bearer"
 }
 ```
+
+## Product Creation Example
+
+Product creation uses `multipart/form-data`.
+
+```bash
+curl -X POST "http://127.0.0.1:8000/products/" \
+  -H "Authorization: Bearer ACCESS_TOKEN" \
+  -F "name=Wireless Headphones" \
+  -F "descriptions=Bluetooth headphones with noise cancellation" \
+  -F "category_id=1" \
+  -F "quantity=10" \
+  -F "price=199.99" \
+  -F "image=@headphones.jpg"
+```
+
+## Project Limitations
+
+This is an educational project and is not intended to be a production-ready e-commerce platform.
+
+The current implementation does not include:
+
+- payment gateway integration;
+- refresh-token rotation and revocation;
+- automatic inclusion of child categories in product filters;
+- background image processing;
+- cloud file storage;
+- email confirmation;
+- automated tests;
+- structured application logging.
+
+Database rollback does not automatically remove files from the filesystem, so image cleanup is handled separately by the application.
 
 ## License
 
